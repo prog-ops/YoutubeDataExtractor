@@ -1,4 +1,4 @@
-//! Ekstraksi file ZIP backup NewPipe / PipePipe.
+//! Extraction of NewPipe / PipePipe backup ZIP files.
 
 use std::fs::{self, File};
 use std::io::{self, BufReader};
@@ -7,23 +7,23 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use zip::ZipArchive;
 
-/// Hasil ekstraksi.
+/// Extraction result details.
 pub struct Extracted {
-    /// Folder tujuan ekstraksi.
+    /// Target extraction folder.
     pub dir: PathBuf,
-    /// Lokasi `newpipe.db` jika ditemukan.
+    /// Location of `newpipe.db` if found.
     pub db_path: Option<PathBuf>,
-    /// Daftar file (nama relatif, ukuran byte).
+    /// List of extracted files (relative path, byte size).
     pub files: Vec<(String, u64)>,
 }
 
-/// Mengekstrak seluruh isi ZIP ke folder `<nama_zip>_extracted` di samping file ZIP.
-/// Jika folder tersebut tidak bisa ditulis, ekstraksi dialihkan ke folder temp sistem.
+/// Extracts all contents of the ZIP archive into `<zip_stem>_extracted` adjacent to the file.
+/// If that directory is not writable, extraction falls back to the system temporary directory.
 pub fn extract_zip(zip_path: &Path) -> Result<Extracted> {
     let file = File::open(zip_path)
-        .with_context(|| format!("Gagal membuka file {}", zip_path.display()))?;
+        .with_context(|| format!("Failed to open file {}", zip_path.display()))?;
     let mut archive = ZipArchive::new(BufReader::new(file))
-        .context("File tersebut bukan arsip ZIP yang valid")?;
+        .context("The specified file is not a valid ZIP archive")?;
 
     let stem = zip_path
         .file_stem()
@@ -37,7 +37,7 @@ pub fn extract_zip(zip_path: &Path) -> Result<Extracted> {
         Err(_) => {
             let tmp = std::env::temp_dir().join("youtube_data_extractor").join(&dir_name);
             fs::create_dir_all(&tmp)
-                .with_context(|| format!("Gagal membuat folder {}", tmp.display()))?;
+                .with_context(|| format!("Failed to create folder {}", tmp.display()))?;
             tmp
         }
     };
@@ -46,8 +46,8 @@ pub fn extract_zip(zip_path: &Path) -> Result<Extracted> {
     let mut db_path = None;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).context("Entri ZIP rusak")?;
-        // `enclosed_name` mencegah path traversal (mis. "../../file").
+        let mut entry = archive.by_index(i).context("Corrupted ZIP entry")?;
+        // `enclosed_name` protects against path traversal attacks (e.g. "../../file").
         let Some(rel) = entry.enclosed_name() else { continue };
         let out = dir.join(&rel);
 
@@ -59,9 +59,9 @@ pub fn extract_zip(zip_path: &Path) -> Result<Extracted> {
             fs::create_dir_all(parent)?;
         }
         let mut f = File::create(&out)
-            .with_context(|| format!("Gagal menulis {}", out.display()))?;
+            .with_context(|| format!("Failed to write {}", out.display()))?;
         io::copy(&mut entry, &mut f)
-            .with_context(|| format!("Gagal mengekstrak {}", rel.display()))?;
+            .with_context(|| format!("Failed to extract {}", rel.display()))?;
 
         let is_db = rel
             .file_name()
@@ -75,7 +75,7 @@ pub fn extract_zip(zip_path: &Path) -> Result<Extracted> {
     Ok(Extracted { dir, db_path, files })
 }
 
-/// Mencari file ZIP backup secara otomatis di folder kerja dan folder executable.
+/// Automatically searches for a backup ZIP file in the current working directory and executable directory.
 pub fn find_default_zip() -> Option<PathBuf> {
     let mut dirs = vec![];
     if let Ok(cwd) = std::env::current_dir() {
@@ -93,7 +93,7 @@ pub fn find_default_zip() -> Option<PathBuf> {
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")))
             .collect();
         zips.sort();
-        // Utamakan file terbaru yang namanya mengandung PipePipe / NewPipe.
+        // Prioritize the newest file whose filename contains PipePipe or NewPipe.
         if let Some(p) = zips.iter().rev().find(|p| {
             let n = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
             n.contains("pipepipe") || n.contains("newpipe")

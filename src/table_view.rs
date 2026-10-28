@@ -1,23 +1,23 @@
-//! Komponen tabel generik: pencarian, filter sub-kategori, sortir kolom,
-//! dan render baris secara virtual (hanya baris yang terlihat yang digambar),
-//! sehingga tetap lancar untuk puluhan ribu baris.
+//! Generic virtualized table component featuring multi-keyword search,
+//! sub-category filtering, column sorting, and smooth 60 FPS rendering
+//! for tens of thousands of rows.
 
 use egui::{Align, Color32, CursorIcon, Label, Layout, RichText, Sense, TextEdit, Ui};
 use egui_extras::{Column as TColumn, TableBuilder};
 
 use crate::model::{fmt_thousands, Cell, Table};
 
-/// Status interaksi untuk satu tabel.
+/// Interaction and filter state for a table view.
 pub struct TableState {
     pub query: String,
     pub category: Option<String>,
-    /// (indeks kolom, menaik?)
+    /// (column index, ascending?)
     pub sort: Option<(usize, bool)>,
-    /// Indeks baris yang lolos filter, dalam urutan tampil.
+    /// Row indices passing all current filters, in display order.
     pub visible: Vec<usize>,
 }
 
-/// Aksi yang diminta tabel ke aplikasi.
+/// Actions dispatched from the table component to the application.
 pub enum TableAction {
     None,
     ExportCsv,
@@ -56,13 +56,13 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
         ui.spacing_mut().item_spacing.x = 8.0;
         let resp = ui.add(
             TextEdit::singleline(&mut state.query)
-                .hint_text("🔍  Cari di semua kolom… (pisahkan kata dengan spasi)")
+                .hint_text("🔍  Search all columns… (space-separated terms)")
                 .desired_width(340.0),
         );
         if resp.changed() {
             dirty = true;
         }
-        if !state.query.is_empty() && ui.button("✖").on_hover_text("Hapus pencarian").clicked() {
+        if !state.query.is_empty() && ui.button("✖").on_hover_text("Clear search").clicked() {
             state.query.clear();
             dirty = true;
         }
@@ -72,7 +72,7 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
             ui.label(RichText::new(format!("{label}:")).strong());
             let selected = match &state.category {
                 Some(c) => c.clone(),
-                None => format!("Semua ({})", table.categories.len()),
+                None => format!("All ({})", table.categories.len()),
             };
             egui::ComboBox::from_id_salt((table.id, "category"))
                 .selected_text(selected)
@@ -82,7 +82,7 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
                     if ui
                         .selectable_label(
                             state.category.is_none(),
-                            format!("Semua  ·  {}", fmt_thousands(table.rows.len() as i64)),
+                            format!("All  ·  {}", fmt_thousands(table.rows.len() as i64)),
                         )
                         .clicked()
                     {
@@ -103,18 +103,18 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
                 });
         }
 
-        if state.sort.is_some() && ui.button("↺ Reset urutan").clicked() {
+        if state.sort.is_some() && ui.button("↺ Reset sorting").clicked() {
             state.sort = None;
             dirty = true;
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("💾 Ekspor CSV").on_hover_text("Simpan baris yang sedang tampil ke file CSV").clicked() {
+            if ui.button("💾 Export CSV").on_hover_text("Save currently visible rows to a CSV file").clicked() {
                 action = TableAction::ExportCsv;
             }
             ui.label(
                 RichText::new(format!(
-                    "{} dari {} baris",
+                    "{} of {} rows",
                     fmt_thousands(state.visible.len() as i64),
                     fmt_thousands(table.rows.len() as i64)
                 ))
@@ -125,7 +125,7 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
     });
     ui.add_space(6.0);
 
-    // ---------------- Tabel ----------------
+    // ---------------- Table ----------------
     let mut clicked_col: Option<usize> = None;
     let row_h = 24.0;
     let num_w = (fmt_thousands(table.rows.len() as i64).len() as f32 * 8.0 + 16.0).max(44.0);
@@ -161,7 +161,7 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
                         }
                         let resp = ui
                             .add(egui::Button::new(text).frame(false))
-                            .on_hover_text("Klik untuk mengurutkan")
+                            .on_hover_text("Click to sort")
                             .on_hover_cursor(CursorIcon::PointingHand);
                         if resp.clicked() {
                             clicked_col = Some(ci);
@@ -185,11 +185,10 @@ pub fn show(ui: &mut Ui, table: &Table, state: &mut TableState, accent: Color32)
             });
     });
 
-    // Klik header: naik -> turun -> naik ...
     if let Some(ci) = clicked_col {
         state.sort = match state.sort {
             Some((s, asc)) if s == ci => Some((ci, !asc)),
-            _ => Some((ci, !table.columns[ci].numeric)), // angka default turun (terbesar dulu)
+            _ => Some((ci, !table.columns[ci].numeric)),
         };
         dirty = true;
     }
@@ -208,20 +207,20 @@ fn draw_cell(ui: &mut Ui, cell: &Cell, numeric: bool) {
                     .sense(Sense::click()),
             )
             .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_text(format!("{}\n\n🔗 {url}\n(klik untuk membuka, klik kanan untuk menyalin)", cell.text));
+            .on_hover_text(format!("{}\n\n🔗 {url}\n(click to open in browser, right-click to copy)", cell.text));
         if resp.clicked() {
             ui.ctx().open_url(egui::OpenUrl::new_tab(url));
         }
         resp.context_menu(|ui| {
-            if ui.button("🔗 Buka di browser").clicked() {
+            if ui.button("🔗 Open in browser").clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                 ui.close();
             }
-            if ui.button("📋 Salin URL").clicked() {
+            if ui.button("📋 Copy URL").clicked() {
                 ui.ctx().copy_text(url.clone());
                 ui.close();
             }
-            if ui.button("📋 Salin teks").clicked() {
+            if ui.button("📋 Copy text").clicked() {
                 ui.ctx().copy_text(cell.text.clone());
                 ui.close();
             }
@@ -233,7 +232,7 @@ fn draw_cell(ui: &mut Ui, cell: &Cell, numeric: bool) {
     } else {
         let resp = ui.add(Label::new(&cell.text).truncate().sense(Sense::click()));
         resp.context_menu(|ui| {
-            if ui.button("📋 Salin teks").clicked() {
+            if ui.button("📋 Copy text").clicked() {
                 ui.ctx().copy_text(cell.text.clone());
                 ui.close();
             }

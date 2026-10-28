@@ -1,5 +1,5 @@
-//! Membaca `newpipe.db` (format NewPipe / PipePipe) dan mengubahnya menjadi
-//! tabel-tabel per kategori + ringkasan statistik.
+//! Parses `newpipe.db` (NewPipe / PipePipe SQLite schema) and converts it into
+//! categorized [`Table`] instances and summary metrics.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use rusqlite::{Connection, OpenFlags, Row};
 use crate::extract;
 use crate::model::*;
 
-/// Ringkasan statistik untuk halaman "Ringkasan".
+/// Aggregated statistical metrics for the Overview page.
 #[derive(Default)]
 pub struct Summary {
     pub watched_videos: usize,
@@ -32,7 +32,7 @@ pub struct Summary {
     pub plays_per_hour: Vec<(String, i64)>,
 }
 
-/// Semua data hasil pembacaan backup.
+/// All extracted dataset items and categories.
 pub struct Dataset {
     pub zip_path: PathBuf,
     pub extract_dir: PathBuf,
@@ -41,7 +41,7 @@ pub struct Dataset {
     pub tables: Vec<Table>,
 }
 
-/// Ekstrak ZIP lalu baca database-nya.
+/// Extracts the ZIP file and parses the SQLite database.
 pub fn load(zip_path: &Path) -> Result<Dataset> {
     let zip_path = std::path::absolute(zip_path).unwrap_or_else(|_| zip_path.to_path_buf());
     let zip_path = zip_path.as_path();
@@ -49,13 +49,13 @@ pub fn load(zip_path: &Path) -> Result<Dataset> {
     let db = ex
         .db_path
         .clone()
-        .context("File `newpipe.db` tidak ditemukan di dalam ZIP. Pastikan ini backup NewPipe/PipePipe.")?;
+        .context("File 'newpipe.db' was not found inside the ZIP. Ensure this is a valid NewPipe or PipePipe backup archive.")?;
 
     let conn = Connection::open_with_flags(
         &db,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .with_context(|| format!("Gagal membuka database {}", db.display()))?;
+    .with_context(|| format!("Failed to open database {}", db.display()))?;
 
     let mut summary = Summary::default();
     let mut tables = Vec::new();
@@ -82,7 +82,7 @@ pub fn load(zip_path: &Path) -> Result<Dataset> {
 }
 
 // ---------------------------------------------------------------------------
-// Helper SQL yang toleran terhadap tipe data (SQLite bertipe dinamis)
+// Type-tolerant SQLite extraction helpers
 // ---------------------------------------------------------------------------
 
 fn has_table(conn: &Connection, name: &str) -> bool {
@@ -117,7 +117,7 @@ fn opt_text(row: &Row, i: usize) -> Option<String> {
 }
 
 fn for_each_row(conn: &Connection, sql: &str, mut f: impl FnMut(&Row)) -> Result<()> {
-    let mut stmt = conn.prepare(sql).with_context(|| format!("SQL gagal: {sql}"))?;
+    let mut stmt = conn.prepare(sql).with_context(|| format!("SQL query failed: {sql}"))?;
     let mut rows = stmt.query([])?;
     while let Some(r) = rows.next()? {
         f(r);
@@ -126,7 +126,7 @@ fn for_each_row(conn: &Connection, sql: &str, mut f: impl FnMut(&Row)) -> Result
 }
 
 fn year_cat(ms: Option<i64>) -> Vec<String> {
-    vec![ms.and_then(year_of).map(|y| y.to_string()).unwrap_or_else(|| "Tidak diketahui".into())]
+    vec![ms.and_then(year_of).map(|y| y.to_string()).unwrap_or_else(|| "Unknown".into())]
 }
 
 fn top_n(map: HashMap<String, i64>, n: usize) -> Vec<(String, i64)> {
@@ -137,27 +137,27 @@ fn top_n(map: HashMap<String, i64>, n: usize) -> Vec<(String, i64)> {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Riwayat Tonton
+// Category: Watch History
 // ---------------------------------------------------------------------------
 
 fn load_watch_history(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "history",
         "▶",
-        "Riwayat Tonton",
-        "Setiap video yang pernah diputar, lengkap dengan waktu, jumlah putar, dan posisi terakhir.",
+        "Watch History",
+        "Every video played, with timestamps, play counts, and playback progress.",
         vec![
-            Column::text("Waktu Tonton", 125.0),
-            Column::text("Judul", 380.0),
+            Column::text("Watched At", 125.0),
+            Column::text("Title", 380.0),
             Column::text("Channel", 170.0),
-            Column::num("Durasi", 70.0),
-            Column::num("Diputar", 60.0),
-            Column::num("Posisi Terakhir", 115.0),
-            Column::text("Tipe", 85.0),
-            Column::text("Layanan", 85.0),
+            Column::num("Duration", 70.0),
+            Column::num("Plays", 60.0),
+            Column::num("Last Position", 115.0),
+            Column::text("Type", 95.0),
+            Column::text("Service", 85.0),
         ],
     )
-    .with_categories("Tahun", CatOrder::NameDesc);
+    .with_categories("Year", CatOrder::NameDesc);
 
     let mut per_channel: HashMap<String, i64> = HashMap::new();
     let mut per_year: HashMap<String, i64> = HashMap::new();
@@ -178,7 +178,7 @@ fn load_watch_history(conn: &Connection, sum: &mut Summary) -> Result<Table> {
             let duration = int(r, 3).unwrap_or(0);
             let plays = int(r, 4).unwrap_or(1).max(1);
 
-            // Statistik
+            // Statistical calculations
             videos.insert(int(r, 10).unwrap_or_default());
             sum.total_plays += plays;
             sum.est_watch_secs += duration.max(0) * plays;
@@ -226,11 +226,10 @@ fn load_watch_history(conn: &Connection, sum: &mut Summary) -> Result<Table> {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Riwayat Pencarian
+// Category: Search History
 // ---------------------------------------------------------------------------
 
 fn load_search_history(conn: &Connection, sum: &mut Summary) -> Result<Table> {
-    // Kumpulkan dulu agar bisa menghitung berapa kali kata kunci yang sama dicari.
     let mut raw: Vec<(Option<i64>, String, i64)> = Vec::new();
     for_each_row(
         conn,
@@ -249,16 +248,16 @@ fn load_search_history(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "search",
         "🔍",
-        "Riwayat Pencarian",
-        "Semua kata kunci yang pernah dicari, beserta frekuensi pencarian kata kunci yang sama.",
+        "Search History",
+        "All searched queries, along with search frequency.",
         vec![
-            Column::text("Waktu", 125.0),
-            Column::text("Kata Kunci", 480.0),
-            Column::num("Total Dicari", 90.0),
-            Column::text("Layanan", 90.0),
+            Column::text("Timestamp", 125.0),
+            Column::text("Query", 480.0),
+            Column::num("Search Count", 90.0),
+            Column::text("Service", 90.0),
         ],
     )
-    .with_categories("Tahun", CatOrder::NameDesc);
+    .with_categories("Year", CatOrder::NameDesc);
 
     for (date, q, svc) in &raw {
         let n = freq.get(&q.trim().to_lowercase()).copied().unwrap_or(1);
@@ -302,11 +301,10 @@ fn url_encode(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Langganan (dikelompokkan berdasarkan Grup Feed)
+// Category: Subscriptions (grouped by Feed Group)
 // ---------------------------------------------------------------------------
 
 fn load_subscriptions(conn: &Connection, sum: &mut Summary) -> Result<Table> {
-    // Jumlah putar per channel (berdasarkan URL channel, fallback nama).
     let mut plays_by_url: HashMap<String, i64> = HashMap::new();
     let mut plays_by_name: HashMap<String, i64> = HashMap::new();
     for_each_row(
@@ -323,7 +321,6 @@ fn load_subscriptions(conn: &Connection, sum: &mut Summary) -> Result<Table> {
         },
     )?;
 
-    // Grup feed per langganan.
     let mut groups: HashMap<i64, Vec<String>> = HashMap::new();
     if has_table(conn, "feed_group") && has_table(conn, "feed_group_subscription_join") {
         for_each_row(
@@ -351,20 +348,20 @@ fn load_subscriptions(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "subs",
         "⭐",
-        "Langganan",
-        "Channel yang di-subscribe. Gunakan filter Grup Feed untuk melihat channel per grup.",
+        "Subscriptions",
+        "Subscribed channels. Filter by Feed Group to view channels by group.",
         vec![
             Column::text("Channel", 230.0),
-            Column::num("Subscriber", 100.0),
-            Column::text("Grup Feed", 170.0),
-            Column::text("Notifikasi", 80.0),
-            Column::num("Video Diputar", 100.0),
-            Column::text("Feed Diperbarui", 125.0),
-            Column::text("Layanan", 80.0),
-            Column::text("Deskripsi", 420.0),
+            Column::num("Subscribers", 100.0),
+            Column::text("Feed Group", 170.0),
+            Column::text("Notifications", 90.0),
+            Column::num("Videos Played", 100.0),
+            Column::text("Feed Updated", 125.0),
+            Column::text("Service", 80.0),
+            Column::text("Description", 420.0),
         ],
     )
-    .with_categories("Grup Feed", CatOrder::NameAsc);
+    .with_categories("Feed Group", CatOrder::NameAsc);
 
     for_each_row(
         conn,
@@ -382,14 +379,14 @@ fn load_subscriptions(conn: &Connection, sum: &mut Summary) -> Result<Table> {
                 .unwrap_or(0);
             let g = groups.get(&uid).cloned().unwrap_or_default();
             let desc = text(r, 5).replace(['\n', '\r'], " ");
-            let cats = if g.is_empty() { vec!["(Tanpa grup)".to_string()] } else { g.clone() };
+            let cats = if g.is_empty() { vec!["(No group)".to_string()] } else { g.clone() };
 
             t.push(
                 vec![
                     Cell::link(name, url),
                     Cell::int(int(r, 2)),
                     Cell::text(if g.is_empty() { "–".to_string() } else { g.join(", ") }),
-                    Cell::text(if int(r, 3).unwrap_or(0) != 0 { "Aktif" } else { "Mati" }),
+                    Cell::text(if int(r, 3).unwrap_or(0) != 0 { "Enabled" } else { "Disabled" }),
                     Cell::int(Some(plays)),
                     Cell::datetime_ms(last_updated.get(&uid).copied()),
                     Cell::text(service_label(int(r, 6).unwrap_or(0))),
@@ -405,22 +402,22 @@ fn load_subscriptions(conn: &Connection, sum: &mut Summary) -> Result<Table> {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Feed langganan
+// Category: Subscription Feed
 // ---------------------------------------------------------------------------
 
 fn load_feed(conn: &Connection) -> Result<Table> {
     let mut t = Table::new(
         "feed",
         "📰",
-        "Feed Langganan",
-        "Video terbaru dari channel langganan yang tersimpan di cache feed.",
+        "Subscription Feed",
+        "Recent videos from subscribed channels cached in the feed database.",
         vec![
-            Column::text("Tanggal Upload", 110.0),
-            Column::text("Judul", 400.0),
+            Column::text("Upload Date", 110.0),
+            Column::text("Title", 400.0),
             Column::text("Channel", 190.0),
-            Column::num("Durasi", 70.0),
-            Column::num("Penayangan", 100.0),
-            Column::text("Tipe", 85.0),
+            Column::num("Duration", 70.0),
+            Column::num("Views", 100.0),
+            Column::text("Type", 95.0),
         ],
     )
     .with_categories("Channel", CatOrder::NameAsc);
@@ -451,22 +448,22 @@ fn load_feed(conn: &Connection) -> Result<Table> {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Playlist Lokal (dikelompokkan per playlist)
+// Category: Local Playlists (grouped per playlist)
 // ---------------------------------------------------------------------------
 
 fn load_local_playlists(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "playlists",
         "📂",
-        "Playlist Lokal",
-        "Isi playlist buatan sendiri. Pilih playlist di filter untuk melihat isinya saja.",
+        "Local Playlists",
+        "Custom playlists created locally. Filter by playlist name to view its contents.",
         vec![
             Column::text("Playlist", 210.0),
             Column::num("No.", 50.0),
-            Column::text("Judul", 400.0),
+            Column::text("Title", 400.0),
             Column::text("Channel", 180.0),
-            Column::num("Durasi", 70.0),
-            Column::text("Tipe", 85.0),
+            Column::num("Duration", 70.0),
+            Column::text("Type", 95.0),
         ],
     )
     .with_categories("Playlist", CatOrder::FirstSeen);
@@ -502,23 +499,23 @@ fn load_local_playlists(conn: &Connection, sum: &mut Summary) -> Result<Table> {
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Playlist Tersimpan (remote)
+// Category: Saved Playlists (remote bookmarks)
 // ---------------------------------------------------------------------------
 
 fn load_remote_playlists(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "remote",
         "🔖",
-        "Playlist Tersimpan",
-        "Playlist milik channel lain yang di-bookmark.",
+        "Saved Playlists",
+        "Bookmarked external playlists created by other channels.",
         vec![
-            Column::text("Nama Playlist", 380.0),
-            Column::text("Pembuat", 200.0),
-            Column::num("Jumlah Video", 100.0),
-            Column::text("Layanan", 90.0),
+            Column::text("Playlist Name", 380.0),
+            Column::text("Creator", 200.0),
+            Column::num("Video Count", 100.0),
+            Column::text("Service", 90.0),
         ],
     )
-    .with_categories("Pembuat", CatOrder::NameAsc);
+    .with_categories("Creator", CatOrder::NameAsc);
 
     for_each_row(
         conn,
@@ -532,7 +529,7 @@ fn load_remote_playlists(conn: &Connection, sum: &mut Summary) -> Result<Table> 
                     Cell::int(int(r, 2)),
                     Cell::text(service_label(int(r, 3).unwrap_or(0))),
                 ],
-                vec![if up.is_empty() { "(Tidak diketahui)".into() } else { up }],
+                vec![if up.is_empty() { "(Unknown)".into() } else { up }],
             );
         },
     )?;
@@ -541,28 +538,28 @@ fn load_remote_playlists(conn: &Connection, sum: &mut Summary) -> Result<Table> 
 }
 
 // ---------------------------------------------------------------------------
-// Kategori: Semua Video (dikelompokkan per tipe stream)
+// Category: All Videos (grouped by stream type)
 // ---------------------------------------------------------------------------
 
 fn load_streams(conn: &Connection, sum: &mut Summary) -> Result<Table> {
     let mut t = Table::new(
         "streams",
         "🎬",
-        "Semua Video",
-        "Seluruh video/stream yang dikenal database (dari riwayat, playlist, dan feed).",
+        "All Videos",
+        "All indexed streams across watch history, playlists, and feed cache.",
         vec![
-            Column::text("Judul", 380.0),
+            Column::text("Title", 380.0),
             Column::text("Channel", 180.0),
-            Column::text("Tipe", 95.0),
-            Column::num("Durasi", 70.0),
-            Column::num("Penayangan", 105.0),
-            Column::text("Tanggal Upload", 110.0),
-            Column::num("Total Diputar", 95.0),
-            Column::text("Terakhir Ditonton", 125.0),
-            Column::text("Layanan", 90.0),
+            Column::text("Type", 95.0),
+            Column::num("Duration", 70.0),
+            Column::num("Views", 105.0),
+            Column::text("Upload Date", 110.0),
+            Column::num("Total Plays", 95.0),
+            Column::text("Last Watched", 125.0),
+            Column::text("Service", 90.0),
         ],
     )
-    .with_categories("Tipe", CatOrder::CountDesc);
+    .with_categories("Type", CatOrder::CountDesc);
 
     for_each_row(
         conn,

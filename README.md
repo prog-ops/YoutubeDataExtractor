@@ -1,124 +1,129 @@
 # YouTube Data Extractor 🎬📊
 
-Aplikasi desktop berperforma tinggi yang ditulis dalam **Rust** untuk mengekstrak dan menampilkan data backup dari **PipePipe** dan **NewPipe** (termasuk file `PipePipeData-*.zip`) ke dalam tabel interaktif yang diklasifikasikan secara rapi per kategori.
+A high-performance desktop application written in **Rust** to extract and explore backup archives from **PipePipe** and **NewPipe** (such as `PipePipeData-*.zip`) inside categorized, interactive tables with instant search, sub-category filtering, and analytics.
 
 ---
 
-## ✨ Fitur Utama
+## ✨ Key Features
 
-1. **Ekstraksi Otomatis**:
-   - Mendeteksi otomatis file ZIP backup NewPipe/PipePipe di folder kerja atau folder instalasi.
-   - Ekstraksi aman dengan proteksi *path-traversal* ke folder `<nama_zip>_extracted`.
-   - Mengambil `newpipe.db` (database SQLite Room) dan membaca seluruh tabel data.
+1. **Automatic Extraction**:
+   - Automatically detects NewPipe/PipePipe backup ZIP files in the current folder or executable directory.
+   - Safe zip decompression with path-traversal protection into `<zip_name>_extracted`.
+   - Reads SQLite database `newpipe.db` (Android Room schema) without requiring external SQLite installations.
 
-2. **Klasifikasi Data per Kategori**:
-   - 📊 **Ringkasan (Dashboard)**:
-     - Kartu metrik: Total video ditonton, total pemutaran, estimasi durasi tonton, jumlah pencarian unik, langganan channel, playlist, dan total stream di database.
-     - Grafik batang: Aktivitas tonton per tahun (2018–2026).
-     - Grafik interaktif: Jam favorit menonton (distribusi per jam 00:00–23:00).
-     - Daftar channel teratas yang paling sering ditonton (klik nama channel untuk langsung menuju riwayat tonton channel tersebut).
-     - Daftar kata kunci pencarian teratas (klik kata kunci untuk langsung memfilter tabel pencarian).
-   - ▶ **Riwayat Tonton** (43.244+ baris):
-     - Waktu tonton lokal, judul, nama channel, durasi video, jumlah kali diputar, posisi pemutaran terakhir (dengan persentase), tipe stream, dan nama layanan.
-     - Filter sub-kategori: **Tahun**.
-   - 🔍 **Riwayat Pencarian** (6.223+ baris):
-     - Waktu pencarian, kata kunci, frekuensi pencarian kata kunci yang sama, dan nama layanan.
-     - Filter sub-kategori: **Tahun**.
-     - Tautan pencarian langsung ke YouTube.
-   - ⭐ **Langganan** (200 channel):
-     - Nama channel, jumlah subscriber, grup feed, status notifikasi, jumlah video yang pernah diputar dari channel tersebut, tanggal feed terakhir diperbarui, layanan, dan deskripsi channel.
-     - Filter sub-kategori: **Grup Feed** (mis. *Sains/Infographic*, *FE*, *Save semua*, dsb.).
-   - 📰 **Feed Langganan** (1.574+ baris):
-     - Cache video terbaru dari channel yang di-subscribe.
-     - Filter sub-kategori: **Channel**.
-   - 📂 **Playlist Lokal** (5.008+ baris, 102 playlist):
-     - Daftar video di dalam playlist buatan sendiri.
-     - Filter sub-kategori: **Nama Playlist**.
-   - 🔖 **Playlist Tersimpan / Remote** (80 playlist):
-     - Playlist publik yang di-bookmark dari channel lain.
-     - Filter sub-kategori: **Pembuat**.
-   - 🎬 **Semua Video di Database** (46.689+ baris):
-     - Semua video yang tercatat di database dari gabungan riwayat, playlist, dan feed.
-     - Filter sub-kategori: **Tipe Stream** (Video, Live Stream, Rekaman Live).
+2. **Data Classification by Categories**:
+   - 📊 **Overview (Dashboard)**:
+     - Metric cards: Total videos watched, total play count, cumulative video duration played, unique search queries, subscribed channels, local playlists, and total indexed streams.
+     - Bar chart: Annual watching activity (play count distribution across years).
+     - Interactive chart: 24-hour daily watch pattern (hover over bars to inspect counts).
+     - Quick links: Click top watched channels or search queries to jump directly to the filtered table view.
+   - ▶ **Watch History**:
+     - Local timestamp, video title, channel name, duration, play count, last playback position (with progress percentage), stream type, and service name.
+     - Sub-category filter: **Year**.
+   - 🔍 **Search History**:
+     - Search timestamp, query, repeat search frequency, and service.
+     - Direct search link to open query results on YouTube.
+     - Sub-category filter: **Year**.
+   - ⭐ **Subscriptions**:
+     - Channel name, subscriber count, feed group, notification status, total videos played from channel, last feed update timestamp, service, and channel description.
+     - Sub-category filter: **Feed Group** (e.g., custom folders / groups).
+   - 📰 **Subscription Feed**:
+     - Cached stream entries from subscribed channels.
+     - Sub-category filter: **Channel**.
+   - 📂 **Local Playlists**:
+     - Track-ordered video items within user-created local playlists.
+     - Sub-category filter: **Playlist Name**.
+   - 🔖 **Saved Playlists**:
+     - Bookmarked public playlists created by other creators.
+     - Sub-category filter: **Creator**.
+   - 🎬 **All Videos**:
+     - Master catalog of all streams indexed across history, playlists, and feed caches.
+     - Sub-category filter: **Stream Type** (Video, Live Stream, Past Live Stream).
 
-3. **Kemampuan Tabel Interaktif**:
-   - **Render Virtual**: Menampilkan hingga puluhan ribu baris dengan sangat mulus (*60 FPS*) karena hanya baris yang terlihat di layar yang dirender.
-   - **Pencarian Cepat Multi-Kata**: Mendukung pencarian kata kunci di seluruh kolom sekaligus (mis. `kompas live 2024`).
-   - **Filter Sub-Kategori**: Dropdown pintar dengan jumlah data per kategori.
-   - **Pengurutan Kolom**: Klik header kolom untuk mengurutkan (menaik/menurun). Angka diurutkan secara numerik, bukan abjad.
-   - **Tautan & Menu Klik Kanan**:
-     - Klik kiri teks judul/channel untuk membuka halaman YouTube langsung di browser default.
-     - Klik kanan pada sel mana pun untuk menyalin teks atau menyalin URL.
-   - **Ekspor CSV**: Tombol **💾 Ekspor CSV** untuk mengekspor data yang sedang terfilter ke file `.csv` (dilengkapi BOM UTF-8 agar terbaca sempurna di Microsoft Excel).
-   - **Tema Terang & Gelap**: Toggle tema instan di bilah atas.
-   - **Drag & Drop**: Seret dan lepas file `.zip` lain langsung ke jendela aplikasi.
+3. **Interactive Table Capabilities**:
+   - **Virtualized Rendering**: Handles 40,000+ rows smoothly at 60 FPS using immediate-mode virtual scrolling (`egui_extras::TableBuilder`).
+   - **Multi-Keyword Search**: Real-time filtering across all columns simultaneously (space-separated query terms).
+   - **Smart Sub-Category Filters**: Instant dropdown selection with live row counters per category.
+   - **Numeric & Lexicographical Sorting**: Click headers to cycle ascending/descending order. Numeric columns sort by real values, not text.
+   - **Hyperlinks & Context Menu**:
+     - Left-click titles or channels to open directly in the default browser.
+     - Right-click any cell to copy text or copy URL.
+   - **Excel-Compatible CSV Export**: Click **💾 Export CSV** to export the currently filtered rows with automatic UTF-8 BOM.
+   - **Dark / Light / System Theme**: Instant theme switching from the top toolbar.
+   - **Drag & Drop**: Drag and drop any `.zip` file into the application window to load it immediately.
 
-4. **Mode CLI Verifikasi Cepat (`--check`)**:
-   - Menjalankan ekstraksi dan analisis data langsung di terminal tanpa membuka GUI.
+4. **Headless Verification Mode (`--check`)**:
+   - Run data analysis and verification directly from the command line without opening the GUI.
 
 ---
 
-## 🚀 Cara Menjalankan
+## 🚀 Getting Started
 
-### 1. Menjalankan Mode GUI Desktop
-Jalankan aplikasi langsung dengan Cargo:
+### 1. Launching the GUI Application
+Run using Cargo:
 ```bash
 cargo run --release
 ```
-Atau jika ingin menentukan file ZIP tertentu secara eksplisit:
+Or specify a backup ZIP file explicitly:
 ```bash
-cargo run --release -- "PipePipeData-20260309_004207.zip"
+cargo run --release -- "PipePipeData-sample.zip"
 ```
 
-Aplikasi juga bisa dijalankan langsung dari binary release:
+Or run the compiled release executable directly:
 ```powershell
 .\target\release\youtube_data_extractor.exe
 ```
 
-### 2. Menjalankan Mode Analisis Cepat Terminal (`--check`)
+### 2. Headless CLI Verification Mode (`--check`)
 ```bash
-cargo run -- --check PipePipeData-20260309_004207.zip
+cargo run -- --check backup.zip
 ```
-Output contoh:
+Example terminal output:
 ```text
-ZIP      : .\PipePipeData-20260309_004207.zip
-Ekstrak  : .\PipePipeData-20260309_004207_extracted
-Waktu    : 2.26s
+ZIP archive: .\backup.zip
+Extracted  : .\backup_extracted
+Elapsed    : 1.85s
 
-Riwayat Tonton         43.244 baris  | 9 sub-kategori (Tahun)
-Riwayat Pencarian       6.223 baris  | 9 sub-kategori (Tahun)
-Langganan                 200 baris  | 5 sub-kategori (Grup Feed)
-Feed Langganan          1.574 baris  | 120 sub-kategori (Channel)
-Playlist Lokal          5.008 baris  | 102 sub-kategori (Playlist)
-Playlist Tersimpan         80 baris  | 73 sub-kategori (Pembuat)
-Semua Video            46.689 baris  | 3 sub-kategori (Tipe)
+Watch History            42,500 rows  | 8 sub-categories (Year)
+Search History            5,800 rows  | 8 sub-categories (Year)
+Subscriptions               150 rows  | 4 sub-categories (Feed Group)
+Subscription Feed         1,200 rows  | 95 sub-categories (Channel)
+Local Playlists           3,400 rows  | 45 sub-categories (Playlist)
+Saved Playlists              60 rows  | 50 sub-categories (Creator)
+All Videos               45,000 rows  | 3 sub-categories (Type)
 
-Ringkasan: 42.356 video ditonton, 83.284 putar, estimasi 1464 hari 18 jam 49 menit
-Top channel: [("KOMPASTV", 3707), ("Rapid Trailer", 2402), ("MimbarTube", 2286), ("CoD Narco Live", 2117), ("tvOneNews", 1930)]
+Overview: 41,200 videos watched, 75,000 plays, estimated 1,200 days 14 hrs 30 mins
+Top channels: [("Tech Channel", 2450), ("Science Daily", 1820), ("Documentary Hub", 1540)]
 ```
 
 ---
 
-## 🛠 Arsitektur Kode
+## 🛠 Project Architecture
 
 ```text
 src/
-├── main.rs          # Entry point aplikasi, penanganan CLI argumen & eframe native window
-├── extract.rs       # Dekompresi ZIP aman (anti-path-traversal) & auto-discovery file backup
-├── loader.rs        # Parser SQLite `newpipe.db` ke model data kategori & penghitung statistik
-├── model.rs         # Data model generik (Cell, Column, Table), pengurutan, format angka & durasi
-├── table_view.rs    # Komponen virtualized table egui (search, filter, sort, context menu)
-├── export.rs        # Modul ekspor CSV terfilter dengan UTF-8 BOM
-└── app.rs           # State management GUI, sidebar navigasi, stat cards, visual charts & tema
+├── main.rs          # Application entry point, CLI arguments, and native window setup
+├── extract.rs       # Safe ZIP decompression (anti path-traversal) & backup discovery
+├── loader.rs        # SQLite `newpipe.db` parser & analytics metric aggregator
+├── model.rs         # Generic table model (Cell, Column, Table), sorting keys, and formatters
+├── table_view.rs    # Virtualized table component (search, category filter, sort, context menu)
+├── export.rs        # Filtered CSV export module with UTF-8 BOM
+└── app.rs           # GUI state management, sidebar navigation, stat cards, and charts
 ```
 
 ---
 
-## 📦 Dependensi Utama
+## 📦 Core Dependencies
 
-- **[eframe / egui 0.37](https://github.com/emilk/egui)**: Framework GUI langsung (immediate-mode) yang ringan, cepat, dan modern.
-- **[egui_extras](https://docs.rs/egui_extras)**: Widget tabel berkinerja tinggi dengan virtual scrolling.
-- **[rusqlite](https://docs.rs/rusqlite)** (fitur `bundled`): Driver SQLite terintegrasi langsung tanpa perlu instalasi DLL eksternal.
-- **[zip](https://docs.rs/zip)**: Pembaca dan pengekstrak arsip ZIP.
-- **[chrono](https://docs.rs/chrono)**: Penanganan tanggal dan konversi waktu lokal.
-- **[rfd](https://docs.rs/rfd)**: Native file picker dialog untuk memilih file ZIP dan menyimpan file CSV.
+- **[eframe / egui 0.37](https://github.com/emilk/egui)**: Fast, lightweight immediate-mode GUI framework.
+- **[egui_extras](https://docs.rs/egui_extras)**: High-performance virtualized table layout.
+- **[rusqlite](https://docs.rs/rusqlite)** (`bundled` feature): Embedded SQLite driver without requiring external DLLs.
+- **[zip](https://docs.rs/zip)**: ZIP archive decompression and inspection.
+- **[chrono](https://docs.rs/chrono)**: Date-time conversions and local timezone formatting.
+- **[rfd](https://docs.rs/rfd)**: Native file picker dialogs for selecting files and saving CSVs.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).

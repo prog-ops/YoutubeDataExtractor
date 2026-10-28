@@ -1,4 +1,4 @@
-//! Aplikasi GUI utama (egui / eframe).
+//! Main GUI application (egui / eframe).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use crate::loader::{self, Dataset, Summary};
 use crate::model::{fmt_date, fmt_long_duration, fmt_thousands};
 use crate::table_view::{self, TableAction, TableState};
 
-// Palet warna
+// Color palette
 const RED: Color32 = Color32::from_rgb(255, 82, 82);
 const AMBER: Color32 = Color32::from_rgb(246, 173, 55);
 const TEAL: Color32 = Color32::from_rgb(56, 201, 214);
@@ -29,7 +29,7 @@ enum State {
     Error { path: Option<PathBuf>, msg: String },
 }
 
-/// Navigasi: 0 = Ringkasan, n = tabel ke-(n-1).
+/// Navigation target: 0 = Overview, n = tables[n-1].
 pub struct YtApp {
     state: State,
     nav: usize,
@@ -52,7 +52,7 @@ impl YtApp {
         let (tx, rx) = mpsc::channel();
         let ctx2 = ctx.clone();
         let p = path.clone();
-        // Ekstraksi + baca DB di thread terpisah agar UI tetap responsif.
+        // Extraction and DB reading occur in a background worker thread to keep UI smooth.
         std::thread::spawn(move || {
             let res = loader::load(&p).map_err(|e| format!("{e:#}"));
             let _ = tx.send(res);
@@ -63,7 +63,7 @@ impl YtApp {
 
     fn open_dialog(&mut self, ctx: &egui::Context) {
         if let Some(p) = rfd::FileDialog::new()
-            .set_title("Pilih file backup NewPipe / PipePipe")
+            .set_title("Select NewPipe / PipePipe backup file")
             .add_filter("Backup ZIP", &["zip"])
             .pick_file()
         {
@@ -90,7 +90,7 @@ impl YtApp {
                 self.state = State::Error { path, msg };
             }
             Err(TryRecvError::Disconnected) => {
-                self.state = State::Error { path: None, msg: "Proses pembacaan berhenti tiba-tiba.".into() };
+                self.state = State::Error { path: None, msg: "Data loading thread terminated unexpectedly.".into() };
             }
             Err(TryRecvError::Empty) => {}
         }
@@ -101,7 +101,7 @@ impl YtApp {
         self.toast = Some((msg.into(), ok, now + 6.0));
     }
 
-    /// Lompat ke tabel tertentu dengan kata kunci pencarian terisi.
+    /// Jump directly to a table with a prepopulated search query.
     fn jump_to(&mut self, table_id: &str, query: String) {
         let State::Ready(ds) = &self.state else { return };
         if let Some(idx) = ds.tables.iter().position(|t| t.id == table_id) {
@@ -114,7 +114,7 @@ impl YtApp {
     }
 
     // ------------------------------------------------------------------
-    // Panel-panel
+    // Panel components
     // ------------------------------------------------------------------
 
     fn top_bar(&mut self, ui: &mut Ui) {
@@ -123,16 +123,16 @@ impl YtApp {
         ui.horizontal(|ui| {
             ui.label(RichText::new("▶").size(24.0).color(RED));
             ui.label(RichText::new("YouTube Data Extractor").size(20.0).strong());
-            ui.label(RichText::new("·  penampil backup NewPipe / PipePipe").weak());
+            ui.label(RichText::new("· NewPipe / PipePipe backup viewer").weak());
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 egui::widgets::global_theme_preference_buttons(ui);
                 ui.separator();
-                if ui.button("📂  Buka ZIP…").on_hover_text("Ctrl+O").clicked() {
+                if ui.button("📂  Open ZIP…").on_hover_text("Ctrl+O").clicked() {
                     open = true;
                 }
                 if let State::Ready(ds) = &self.state {
-                    if ui.button("⟳").on_hover_text("Muat ulang file ini").clicked() {
+                    if ui.button("⟳").on_hover_text("Reload this file").clicked() {
                         reload = Some(ds.zip_path.clone());
                     }
                     let name = ds.zip_path.file_name().unwrap_or_default().to_string_lossy();
@@ -153,17 +153,17 @@ impl YtApp {
         ui.horizontal(|ui| {
             match &self.state {
                 State::Ready(ds) => {
-                    ui.label(RichText::new("📁 Diekstrak ke:").weak());
+                    ui.label(RichText::new("📁 Extracted to:").weak());
                     ui.label(RichText::new(ds.extract_dir.display().to_string()).monospace().small());
-                    if ui.small_button("Buka folder").clicked() {
+                    if ui.small_button("Open folder").clicked() {
                         open_in_explorer(&ds.extract_dir);
                     }
                 }
                 State::Loading { .. } => {
-                    ui.label(RichText::new("Sedang memproses…").weak());
+                    ui.label(RichText::new("Processing…").weak());
                 }
                 _ => {
-                    ui.label(RichText::new("Belum ada file yang dibuka").weak());
+                    ui.label(RichText::new("No backup file opened").weak());
                 }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -183,25 +183,25 @@ impl YtApp {
     fn nav_panel(&mut self, ui: &mut Ui) {
         let State::Ready(ds) = &self.state else { return };
         ui.add_space(10.0);
-        ui.label(RichText::new("KATEGORI DATA").small().strong().color(ui.visuals().weak_text_color()));
+        ui.label(RichText::new("DATA CATEGORIES").small().strong().color(ui.visuals().weak_text_color()));
         ui.add_space(4.0);
 
         let mut new_nav = None;
         ui.with_layout(Layout::top_down_justified(Align::LEFT), |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
-            if nav_item(ui, self.nav == 0, "📊", "Ringkasan", "Statistik & grafik").clicked() {
+            if nav_item(ui, self.nav == 0, "📊", "Overview", "Statistics & charts").clicked() {
                 new_nav = Some(0);
             }
             ui.add_space(4.0);
             for (i, t) in ds.tables.iter().enumerate() {
                 let sub = match t.category_label {
                     Some(l) => format!(
-                        "{} baris · {} {}",
+                        "{} rows · {} {}",
                         fmt_thousands(t.rows.len() as i64),
                         t.categories.len(),
                         l.to_lowercase()
                     ),
-                    None => format!("{} baris", fmt_thousands(t.rows.len() as i64)),
+                    None => format!("{} rows", fmt_thousands(t.rows.len() as i64)),
                 };
                 if nav_item(ui, self.nav == i + 1, t.icon, t.title, &sub).clicked() {
                     new_nav = Some(i + 1);
@@ -221,7 +221,7 @@ impl YtApp {
                         .color(ui.visuals().weak_text_color()),
                 );
             }
-            ui.label(RichText::new("ISI FILE ZIP").small().strong().color(ui.visuals().weak_text_color()));
+            ui.label(RichText::new("ZIP ARCHIVE CONTENTS").small().strong().color(ui.visuals().weak_text_color()));
             ui.separator();
         });
     }
@@ -241,15 +241,15 @@ impl YtApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.25);
                     ui.label(RichText::new("⚠").size(48.0).color(RED));
-                    ui.label(RichText::new("Gagal membaca backup").size(22.0).strong());
+                    ui.label(RichText::new("Failed to read backup archive").size(22.0).strong());
                     ui.add_space(6.0);
                     ui.label(RichText::new(&msg).color(RED));
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
                         ui.add_space((ui.available_width() - 260.0).max(0.0) / 2.0);
-                        open = ui.button("📂  Pilih file lain…").clicked();
+                        open = ui.button("📂  Choose another file…").clicked();
                         if retry.is_some() {
-                            again = ui.button("⟳  Coba lagi").clicked();
+                            again = ui.button("⟳  Try again").clicked();
                         }
                     });
                 });
@@ -264,7 +264,7 @@ impl YtApp {
                     ui.add_space(ui.available_height() * 0.35);
                     ui.add(egui::Spinner::new().size(42.0).color(RED));
                     ui.add_space(12.0);
-                    ui.label(RichText::new("Mengekstrak ZIP & membaca database…").size(18.0).strong());
+                    ui.label(RichText::new("Extracting ZIP archive & reading database…").size(18.0).strong());
                     ui.label(RichText::new(path.display().to_string()).weak());
                 });
             }
@@ -298,7 +298,7 @@ impl YtApp {
         if let TableAction::ExportCsv = action {
             let default_name = format!("{}.csv", table.title.to_lowercase().replace(' ', "_"));
             if let Some(path) = rfd::FileDialog::new()
-                .set_title("Simpan sebagai CSV")
+                .set_title("Save as CSV")
                 .set_file_name(&default_name)
                 .add_filter("CSV", &["csv"])
                 .save_file()
@@ -307,8 +307,8 @@ impl YtApp {
                 let res = crate::export::export_csv(&path, table, &state.visible);
                 let ctx = ui.ctx().clone();
                 match res {
-                    Ok(()) => self.set_toast(&ctx, format!("✔ {} baris diekspor ke {}", fmt_thousands(n as i64), path.display()), true),
-                    Err(e) => self.set_toast(&ctx, format!("✖ Gagal ekspor: {e:#}"), false),
+                    Ok(()) => self.set_toast(&ctx, format!("✔ {} rows exported to {}", fmt_thousands(n as i64), path.display()), true),
+                    Err(e) => self.set_toast(&ctx, format!("✖ Export failed: {e:#}"), false),
                 }
             }
         }
@@ -321,7 +321,7 @@ impl eframe::App for YtApp {
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        // Drag & drop file ZIP ke jendela.
+        // Drag & drop ZIP file into the window.
         let dropped = ui.input(|i| {
             i.raw
                 .dropped_files
@@ -360,7 +360,7 @@ impl eframe::App for YtApp {
             painter.text(
                 rect.center(),
                 Align2::CENTER_CENTER,
-                "📥  Lepaskan file ZIP di sini",
+                "📥  Drop ZIP file here",
                 FontId::proportional(28.0),
                 Color32::WHITE,
             );
@@ -369,7 +369,7 @@ impl eframe::App for YtApp {
 }
 
 // ---------------------------------------------------------------------------
-// Widget kecil
+// UI Helper Widgets
 // ---------------------------------------------------------------------------
 
 fn nav_item(ui: &mut Ui, selected: bool, icon: &str, title: &str, sub: &str) -> egui::Response {
@@ -397,16 +397,16 @@ fn welcome(ui: &mut Ui, _hint: Option<&str>) -> bool {
         ui.label(RichText::new("YouTube Data Extractor").size(30.0).strong());
         ui.add_space(4.0);
         ui.label(
-            RichText::new("Ekstrak dan jelajahi data backup NewPipe / PipePipe dalam tabel yang rapi.")
+            RichText::new("Extract and explore NewPipe / PipePipe backup data in clean, interactive tables.")
                 .size(15.0)
                 .weak(),
         );
         ui.add_space(22.0);
         clicked = ui
-            .add(egui::Button::new(RichText::new("📂   Pilih file ZIP backup…").size(17.0)).min_size(vec2(260.0, 44.0)))
+            .add(egui::Button::new(RichText::new("📂   Select backup ZIP file…").size(17.0)).min_size(vec2(260.0, 44.0)))
             .clicked();
         ui.add_space(10.0);
-        ui.label(RichText::new("atau seret & lepas file .zip ke jendela ini").weak());
+        ui.label(RichText::new("or drag & drop a .zip file into this window").weak());
     });
     clicked
 }
@@ -444,7 +444,7 @@ fn section<R>(ui: &mut Ui, title: &str, color: Color32, add: impl FnOnce(&mut Ui
         .inner
 }
 
-/// Daftar batang horizontal; mengembalikan label yang diklik.
+/// Horizontal bar list; returns the clicked label if selected.
 fn bar_list(ui: &mut Ui, items: &[(String, i64)], color: Color32) -> Option<String> {
     let max = items.iter().map(|x| x.1).max().unwrap_or(1).max(1) as f32;
     let mut clicked = None;
@@ -458,7 +458,7 @@ fn bar_list(ui: &mut Ui, items: &[(String, i64)], color: Color32) -> Option<Stri
                 })
                 .inner
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Klik untuk melihat detail di tabel");
+                .on_hover_text("Click to view details in table");
             if r.clicked() {
                 clicked = Some(name.clone());
             }
@@ -478,7 +478,7 @@ fn bar_list(ui: &mut Ui, items: &[(String, i64)], color: Color32) -> Option<Stri
     clicked
 }
 
-/// Grafik kolom vertikal sederhana.
+/// Simple vertical column bar chart.
 fn column_chart(ui: &mut Ui, items: &[(String, i64)], color: Color32, height: f32, always_values: bool) {
     let max = items.iter().map(|x| x.1).max().unwrap_or(0).max(1) as f32;
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height + 36.0), Sense::hover());
@@ -514,7 +514,7 @@ fn column_chart(ui: &mut Ui, items: &[(String, i64)], color: Color32, height: f3
     }
 }
 
-/// Halaman ringkasan. Mengembalikan (id tabel, kata kunci) bila pengguna mengklik item.
+/// Overview / Summary dashboard view. Returns (table_id, query) if an item is clicked.
 fn summary_view(ui: &mut Ui, ds: &Dataset) -> Option<(&'static str, String)> {
     let s: &Summary = &ds.summary;
     let mut jump = None;
@@ -522,43 +522,43 @@ fn summary_view(ui: &mut Ui, ds: &Dataset) -> Option<(&'static str, String)> {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("📊").size(24.0).color(RED));
-            ui.heading(RichText::new("Ringkasan").strong());
+            ui.heading(RichText::new("Overview").strong());
         });
         let range = match (s.first_watch, s.last_watch) {
-            (Some(a), Some(b)) => format!("Riwayat dari {} sampai {}", fmt_date(a), fmt_date(b)),
-            _ => "Tidak ada riwayat tonton".into(),
+            (Some(a), Some(b)) => format!("History from {} to {}", fmt_date(a), fmt_date(b)),
+            _ => "No watch history found".into(),
         };
         ui.label(RichText::new(range).weak());
         ui.add_space(10.0);
 
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
-            stat_card(ui, "▶", "Video Ditonton", &fmt_thousands(s.watched_videos as i64),
-                &format!("{} kali diputar", fmt_thousands(s.total_plays)), RED);
-            stat_card(ui, "⏱", "Total Durasi Video Diputar", &fmt_long_duration(s.est_watch_secs),
-                "durasi × jumlah putar (batas atas)", AMBER);
-            stat_card(ui, "🔍", "Pencarian", &fmt_thousands(s.searches as i64),
-                &format!("{} kata kunci unik", fmt_thousands(s.unique_searches as i64)), TEAL);
-            stat_card(ui, "⭐", "Langganan", &fmt_thousands(s.subscriptions as i64), "channel", VIOLET);
-            stat_card(ui, "📂", "Playlist Lokal", &fmt_thousands(s.playlists as i64),
-                &format!("{} video di dalamnya", fmt_thousands(s.playlist_items as i64)), GREEN);
-            stat_card(ui, "🔖", "Playlist Tersimpan", &fmt_thousands(s.remote_playlists as i64), "dari channel lain", PINK);
-            stat_card(ui, "🎬", "Video di Database", &fmt_thousands(s.known_streams as i64), "semua stream yang dikenal", BLUE);
+            stat_card(ui, "▶", "Videos Watched", &fmt_thousands(s.watched_videos as i64),
+                &format!("{} times played", fmt_thousands(s.total_plays)), RED);
+            stat_card(ui, "⏱", "Total Video Duration Played", &fmt_long_duration(s.est_watch_secs),
+                "duration × play count (upper bound)", AMBER);
+            stat_card(ui, "🔍", "Searches", &fmt_thousands(s.searches as i64),
+                &format!("{} unique queries", fmt_thousands(s.unique_searches as i64)), TEAL);
+            stat_card(ui, "⭐", "Subscriptions", &fmt_thousands(s.subscriptions as i64), "channels", VIOLET);
+            stat_card(ui, "📂", "Local Playlists", &fmt_thousands(s.playlists as i64),
+                &format!("{} videos inside", fmt_thousands(s.playlist_items as i64)), GREEN);
+            stat_card(ui, "🔖", "Saved Playlists", &fmt_thousands(s.remote_playlists as i64), "from external channels", PINK);
+            stat_card(ui, "🎬", "Videos in Database", &fmt_thousands(s.known_streams as i64), "all indexed streams", BLUE);
         });
         ui.add_space(14.0);
 
-        section(ui, "📅  Aktivitas tonton per tahun (jumlah putar)", RED, |ui| {
+        section(ui, "📅  Watch activity by year (play count)", RED, |ui| {
             column_chart(ui, &s.plays_per_year, RED, 150.0, true);
         });
         ui.add_space(12.0);
 
         ui.columns(2, |cols| {
-            section(&mut cols[0], "📺  Channel paling sering ditonton", AMBER, |ui| {
+            section(&mut cols[0], "📺  Most watched channels", AMBER, |ui| {
                 if let Some(c) = bar_list(ui, &s.top_channels, AMBER) {
                     jump = Some(("history", c));
                 }
             });
-            section(&mut cols[1], "🔍  Kata kunci paling sering dicari", TEAL, |ui| {
+            section(&mut cols[1], "🔍  Most searched queries", TEAL, |ui| {
                 if let Some(q) = bar_list(ui, &s.top_searches, TEAL) {
                     jump = Some(("search", q));
                 }
@@ -566,7 +566,7 @@ fn summary_view(ui: &mut Ui, ds: &Dataset) -> Option<(&'static str, String)> {
         });
         ui.add_space(12.0);
 
-        section(ui, "🕒  Jam favorit menonton (arahkan kursor untuk melihat angka)", VIOLET, |ui| {
+        section(ui, "🕒  Hourly watch patterns (hover to inspect)", VIOLET, |ui| {
             column_chart(ui, &s.plays_per_hour, VIOLET, 120.0, false);
         });
         ui.add_space(12.0);
@@ -592,11 +592,11 @@ fn open_in_explorer(path: &Path) {
 }
 
 // ---------------------------------------------------------------------------
-// Tampilan & font
+// Font configurations & styling
 // ---------------------------------------------------------------------------
 
-/// Pakai Segoe UI (Windows) sebagai font utama, plus font fallback untuk
-/// simbol, emoji, dan aksara CJK agar judul video berbahasa asing tetap terbaca.
+/// Configure Segoe UI as default font, with fallbacks for symbols, emoji,
+/// and CJK characters to ensure international video titles render smoothly.
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());

@@ -1,15 +1,15 @@
-// Sembunyikan jendela konsol pada build release di Windows.
+// Hide console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 //! YouTube Data Extractor
 //!
-//! Mengekstrak file ZIP backup NewPipe / PipePipe lalu menampilkan isinya
-//! (riwayat tonton, pencarian, langganan, playlist, dll.) dalam tabel yang
-//! dikelompokkan per kategori.
+//! Extracts NewPipe / PipePipe backup ZIP archives and displays their data
+//! (watch history, search queries, subscriptions, playlists, and streams)
+//! in categorized, searchable, virtualized desktop tables.
 //!
-//! Pemakaian:
-//!   youtube_data_extractor [path/ke/backup.zip]
-//! Tanpa argumen, aplikasi mencari file ZIP PipePipe/NewPipe di folder kerja.
+//! Usage:
+//!   youtube_data_extractor [path/to/backup.zip]
+//! Without arguments, the application searches for NewPipe/PipePipe ZIP files in the current folder.
 
 mod app;
 mod export;
@@ -51,22 +51,29 @@ fn main() -> eframe::Result {
     )
 }
 
-/// Mode verifikasi tanpa GUI: `cargo run -- --check [file.zip]`.
-/// (Pada build release Windows, output konsol tidak terlihat karena subsystem GUI.)
+/// Headless verification mode: `cargo run -- --check [file.zip]`.
 fn run_check(zip: Option<PathBuf>) {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        unsafe extern "system" {
+            fn AttachConsole(dw_process_id: u32) -> i32;
+        }
+        AttachConsole(0xFFFF_FFFF);
+    }
+
     let Some(zip) = zip else {
-        eprintln!("Tidak ada file ZIP. Pemakaian: youtube_data_extractor --check <file.zip>");
+        eprintln!("No ZIP file provided. Usage: youtube_data_extractor --check <file.zip>");
         std::process::exit(2);
     };
     let t0 = std::time::Instant::now();
     match loader::load(&zip) {
         Ok(ds) => {
-            println!("ZIP      : {}", ds.zip_path.display());
-            println!("Ekstrak  : {}", ds.extract_dir.display());
-            println!("Waktu    : {:.2?}\n", t0.elapsed());
+            println!("ZIP archive: {}", ds.zip_path.display());
+            println!("Extracted  : {}", ds.extract_dir.display());
+            println!("Elapsed    : {:.2?}\n", t0.elapsed());
             for t in &ds.tables {
                 println!(
-                    "{:<20} {:>8} baris  | {} sub-kategori ({})",
+                    "{:<22} {:>8} rows  | {} sub-categories ({})",
                     t.title,
                     model::fmt_thousands(t.rows.len() as i64),
                     t.categories.len(),
@@ -79,20 +86,20 @@ fn run_check(zip: Option<PathBuf>) {
                         .zip(row)
                         .map(|(c, v)| format!("{}={}", c.name, v.text.chars().take(40).collect::<String>()))
                         .collect();
-                    println!("    contoh: {}", sample.join(" | "));
+                    println!("    sample: {}", sample.join(" | "));
                 }
             }
             let s = &ds.summary;
             println!(
-                "\nRingkasan: {} video ditonton, {} putar, estimasi {}",
+                "\nOverview: {} videos watched, {} plays, estimated {}",
                 model::fmt_thousands(s.watched_videos as i64),
                 model::fmt_thousands(s.total_plays),
                 model::fmt_long_duration(s.est_watch_secs)
             );
-            println!("Top channel: {:?}", s.top_channels.iter().take(5).collect::<Vec<_>>());
+            println!("Top channels: {:?}", s.top_channels.iter().take(5).collect::<Vec<_>>());
         }
         Err(e) => {
-            eprintln!("Gagal: {e:#}");
+            eprintln!("Failed: {e:#}");
             std::process::exit(1);
         }
     }

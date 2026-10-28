@@ -1,4 +1,4 @@
-//! Ekspor tabel (baris yang sedang terlihat) ke CSV.
+//! Exports table data (currently visible/filtered rows) to CSV format.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -16,8 +16,8 @@ fn quote(s: &str) -> String {
     }
 }
 
-/// Tulis baris `indices` dari `table` ke CSV (UTF-8 dengan BOM agar terbaca benar di Excel).
-/// Kolom yang berisi tautan mendapat kolom tambahan "URL <nama kolom>".
+/// Writes `indices` rows from `table` into a CSV file (encoded with UTF-8 BOM for Excel compatibility).
+/// Any column containing hyperlinks will have an accompanying "URL <column_name>" column appended.
 pub fn export_csv(path: &Path, table: &Table, indices: &[usize]) -> Result<()> {
     let mut w = BufWriter::new(File::create(path)?);
     w.write_all(b"\xEF\xBB\xBF")?;
